@@ -1,0 +1,31 @@
+{
+    # Get domain of some url.
+    # @param 1 URL
+    # @example :local domain [$getDomainOfUrl $url];
+    # @returns https://www.github.com/Quenary -> github.com
+    :global getDomainOfUrl do={
+        :local url $1;
+
+        # remove schema
+        :local startOfDomain [:find $url "://"];
+        :if ($startOfDomain > 0) do={
+            :set startOfDomain ($startOfDomain + 3);
+            :set url [:pick $url $startOfDomain [:len $url]];
+        }
+
+        # remove extra path
+        :local endOfDomain [:find $url "/"];
+        :if ($endOfDomain > 0) do={
+            :set url [:pick $url 0 $endOfDomain];
+        }
+
+        # remove www.
+        :local wwwIndex [:find $url "www."];
+        :if ($wwwIndex = 0) do={
+            :set wwwIndex ($wwwIndex + 4);
+            :set url [:pick $url $wwwIndex [:len $url]];
+        }
+
+        return $url;
+    }
+}

@@ -1,0 +1,89 @@
+{
+    # Url to file with list of domains.
+    :local fileUrl "https://antifilter.download/list/allyouneed.lst";
+
+    # Name of Mikrotik address-list.
+    :local addressListName "WG.VPN";
+
+    # Whether to clear the list.
+    :local clearList true;
+
+    # List of addresses that won't be added.
+    # @example "1.2.3.4/24, 5.6.7.8/24"
+    :local ignoreAddresses "";
+
+    :log info "Fetching $fileUrl address-list $addressListName";
+
+    # Downloading file by parts,
+    # as RouterOS strings limited to 64KB.
+    :local partSize 64000;
+    :local arrayOfFetchResults [];
+    :local lastBytesStart 0;
+    :local receivedBytes 64000;
+    while ($receivedBytes = $partSize) do={
+        :local bytesToGet ($partSize + $lastBytesStart - 1);
+        :local file [/tool fetch url=$fileUrl as-value output=user http-header-field="Range: bytes=$lastBytesStart-$bytesToGet"];
+        :local content [:pick $file 0];
+        :local contentLength [:len $content];
+        :set receivedBytes $contentLength;
+        :set lastBytesStart ($lastBytesStart + $contentLength);
+        :set arrayOfFetchResults ($arrayOfFetchResults, $content);
+    }
+
+    # Combining results to array of addresses.
+    :local arrayOfAddresses [];
+    :local lastLine "";
+    foreach filePart in=$arrayOfFetchResults do={
+        :local filePartLength [:len $filePart];
+        :local lineEnd 0;
+        :local line "";
+        :local lastEnd 0;
+
+        while ($lineEnd < $filePartLength) do={
+            :set lineEnd [:find $filePart "\n" $lastEnd];
+
+            # Fixes infinite string loop.
+            :if ($lineEnd = []) do={
+                :set lineEnd $filePartLength;
+                :set lastLine [:pick $filePart $lastEnd $lineEnd];
+            } else={
+                :set line [:pick $filePart $lastEnd $lineEnd];
+                :set lastEnd ($lineEnd + 1);
+
+                # Adding last unfinished line from
+                # prev part of file.
+                :if ([:len $lastLine] > 0) do={
+                    :set line "$lastLine$line";
+                    :set lastLine [];
+                }
+                :if ([:len $line] > 0) do={
+                    :set arrayOfAddresses ($arrayOfAddresses, $line);
+                }
+            }
+        }
+    }
+
+    :local addressesCount [:len $arrayOfAddresses];
+    :log info "Received $addressesCount addresses.";
+
+    :if ($clearList) do={
+        :log info "Clearing up the list.";
+        :local listEntry [:ip firewall address-list find list="$addressListName" disabled=no ];
+        while ([:len $listEntry] > 0) do={
+            /ip firewall address-list remove $listEntry;
+            :set listEntry [:ip firewall address-list find list="$addressListName" disabled=no];
+        }
+    }
+
+    foreach address in=$arrayOfAddresses do={
+        :if ([:find $ignoreAddresses $address] = []) do={
+            :do { :ip firewall address-list add list=$addressListName address=$address } on-error {
+                :log warning "Error adding address '$address' to list '$addressListName'.";
+            }
+        } else={
+            :log info "address '$address' ignored."
+        }
+    }
+
+    :log info "Done.";
+}
