@@ -1,0 +1,113 @@
+{
+    :log info "FETCH_ADDRESS_LISTS: Start";
+    # array of entries
+    # 0 - mikrotik address list name
+    # 1 - file url
+    # 2 - wheather to clear list before filling
+    :local addressLists {
+        {"meta_tun2socks";"https://raw.githubusercontent.com/lord-alfred/ipranges/main/facebook/ipv4.txt";"true";};
+        {"yt_tun2socks";"https://raw.githubusercontent.com/touhidurrr/iplist-youtube/main/cidr4.txt";"true";};
+    };
+    # delay each Nth add/remove entry
+    :local throttleIndex 100;
+    # List of addresses that won't be added.
+    # example "1.32.250.0/24, 1.74.23.0/24"
+    :local ignoreAddresses "";
+
+    foreach entry in=$addressLists do={
+        :local addressListName [:pick $entry 0];
+        :local fileUrl [:pick $entry 1];
+        :local clearList [:pick $entry 2];
+
+        # clear list
+        :if ($clearList = "true") do={
+            :log info "FETCH_ADDRESS_LISTS: Clearing up $addressListName";
+            :local listEntry [:ip firewall address-list find list="$addressListName" disabled=no ];
+            :local counter 0;
+            while ([:len $listEntry] > 0) do={
+                /ip firewall address-list remove $listEntry;
+                :set listEntry [:ip firewall address-list find list="$addressListName" disabled=no];
+
+                # throttling
+                :set counter ($counter + 1);
+                :if ($counter % $throttleIndex = 0) do={
+                    :delay 1;
+                }
+            }
+        }
+
+        :log info "FETCH_ADDRESS_LISTS: Fetching $addressListName from $fileUrl";
+        # file fetching in blocks as mikrotik limits variable size comes from file
+        :local partSize 64000;
+        :local arrayOfFetchResults [];
+        :local lastBytesStart 0;
+        :local receivedBytes 64000;
+
+        while ($receivedBytes = $partSize) do={
+            :local bytesToGet ($partSize + $lastBytesStart - 1);
+            :local file [/tool fetch url=$fileUrl as-value output=user http-header-field="Range: bytes=$lastBytesStart-$bytesToGet"];
+            :local content [:pick $file 0];
+            :local contentLength [:len $content];
+            :set receivedBytes $contentLength;
+            :set lastBytesStart ($lastBytesStart + $contentLength);
+            :set arrayOfFetchResults ($arrayOfFetchResults, $content);
+        }
+
+        # getting addresses from text line by line
+        :local arrayOfAddresses [];
+        :local lastLine "";
+        foreach filePart in=$arrayOfFetchResults do={
+            :local filePartLength [:len $filePart];
+            :local lineEnd 0;
+            :local line "";
+            :local lastEnd 0;
+
+            while ($lineEnd < $filePartLength) do={
+                :set lineEnd [:find $filePart "\n" $lastEnd];
+
+                # Fixes infinite string loop.
+                :if ($lineEnd = []) do={
+                    :set lineEnd $filePartLength;
+                    :set lastLine [:pick $filePart $lastEnd $lineEnd];
+                } else={
+                    :set line [:pick $filePart $lastEnd $lineEnd];
+                    :set lastEnd ($lineEnd + 1);
+
+                    # Adding last unfinished line from
+                    # prev part of file.
+                    :if ([:len $lastLine] > 0) do={
+                        :set line "$lastLine$line";
+                        :set lastLine [];
+                    }
+                    :if ([:len $line] > 0) do={
+                        :set arrayOfAddresses ($arrayOfAddresses, $line);
+                    }
+                }
+            }
+        }
+
+        :local addressesCount [:len $arrayOfAddresses];
+        :log info "FETCH_ADDRESS_LISTS: Received $addressesCount addresses for $addressListName";
+
+        :if ($addressesCount > 0) do={
+            :local counter 0;
+            foreach address in=$arrayOfAddresses do={
+                :if ([:find $ignoreAddresses $address] = []) do={
+                    :do { :ip firewall address-list add list=$addressListName address=$address } on-error {
+                        :log warning "FETCH_ADDRESS_LISTS: Error adding address '$address' to list '$addressListName'.";
+                    }
+                } else={
+                    :log info "FETCH_ADDRESS_LISTS: address '$address' ignored"
+                }
+
+                # throttling
+                :set counter ($counter + 1);
+                :if ($counter % $throttleIndex = 0) do={
+                    :delay 1;
+                }
+            }
+
+            :log info "FETCH_ADDRESS_LISTS: Done";
+        }
+    }
+}
