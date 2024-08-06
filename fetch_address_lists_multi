@@ -106,8 +106,8 @@
                     :delay 1;
                 }
             }
-
-            :log info "FETCH_ADDRESS_LISTS: Done";
         }
     }
+    
+    :log info "FETCH_ADDRESS_LISTS: Done";
 }
