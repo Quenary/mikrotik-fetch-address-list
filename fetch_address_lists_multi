@@ -5,8 +5,11 @@
     # 1 - file url
     # 2 - wheather to clear list before filling
     :local addressLists {
-        {"meta_tun2socks";"https://raw.githubusercontent.com/lord-alfred/ipranges/main/facebook/ipv4.txt";"true";};
-        {"yt_tun2socks";"https://raw.githubusercontent.com/touhidurrr/iplist-youtube/main/cidr4.txt";"true";};
+        {"tun2socks";"https://raw.githubusercontent.com/Ground-Zerro/DomainMapper/main/platforms/dns-facebook.txt";"true";};
+        {"tun2socks";"https://raw.githubusercontent.com/Ground-Zerro/DomainMapper/main/platforms/dns-youtube.txt";"false";};
+        {"tun2socks";"https://raw.githubusercontent.com/Ground-Zerro/DomainMapper/main/platforms/dns-instagram.txt";"false";};
+        {"tun2socks";"https://raw.githubusercontent.com/Ground-Zerro/DomainMapper/main/platforms/dns-twitter.txt";"false";};
+        {"tun2socks";"https://raw.githubusercontent.com/Ground-Zerro/DomainMapper/main/platforms/dns-openai.txt";"false";};
     };
     # delay each Nth add/remove entry
     :local throttleIndex 100;
@@ -14,19 +17,19 @@
     # example "1.32.250.0/24, 1.74.23.0/24"
     :local ignoreAddresses "";
 
+    # clear lists at first, in case you have multiple files for same list
     foreach entry in=$addressLists do={
         :local addressListName [:pick $entry 0];
-        :local fileUrl [:pick $entry 1];
         :local clearList [:pick $entry 2];
 
         # clear list
         :if ($clearList = "true") do={
             :log info "FETCH_ADDRESS_LISTS: Clearing up $addressListName";
-            :local listEntry [:ip firewall address-list find list="$addressListName" disabled=no ];
+            :local listEntry [:ip firewall address-list find list="$addressListName" disabled=no dynamic=no];
             :local counter 0;
             while ([:len $listEntry] > 0) do={
                 /ip firewall address-list remove $listEntry;
-                :set listEntry [:ip firewall address-list find list="$addressListName" disabled=no];
+                :set listEntry [:ip firewall address-list find list="$addressListName" disabled=no dynamic=no];
 
                 # throttling
                 :set counter ($counter + 1);
@@ -35,6 +38,12 @@
                 }
             }
         }
+    }
+
+    foreach entry in=$addressLists do={
+        :local addressListName [:pick $entry 0];
+        :local fileUrl [:pick $entry 1];
+        :local clearList [:pick $entry 2];
 
         :log info "FETCH_ADDRESS_LISTS: Fetching $addressListName from $fileUrl";
         # file fetching in blocks as mikrotik limits variable size comes from file
